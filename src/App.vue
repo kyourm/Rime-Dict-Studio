@@ -159,7 +159,7 @@ onMounted(async () => {
         <div class="modal-header"><strong>{{ t(editingId ? 'editor.confirmEdit' : 'editor.add') }}</strong><button type="button" class="icon-button" @click="showForm = false">×</button></div>
         <div class="modal-body">
           <label><span>{{ t('editor.phrase') }}</span><input v-model="draft.phrase" autofocus required /></label>
-          <label><span>{{ t('editor.code') }}</span><input v-model="draft.code" pattern="[A-Za-z]+" required autocapitalize="off" /></label>
+          <label><span>{{ t('editor.code') }}</span><input v-model="draft.code" required autocapitalize="off" /></label>
           <label><span>{{ t('editor.weight') }} · {{ t('editor.optional') }}</span><input v-model="draft.weight" type="number" min="1" step="1" /></label>
         </div>
         <div class="modal-footer"><button type="button" class="secondary" @click="showForm = false">{{ t('editor.cancel') }}</button><button class="primary" type="submit">{{ t(editingId ? 'editor.confirmEdit' : 'editor.confirmAdd') }}</button></div>

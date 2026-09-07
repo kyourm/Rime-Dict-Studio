@@ -34,11 +34,11 @@ describe("词典编辑公共接口", () => {
     });
   });
 
-  it("修改词条并校验五笔编码和权重", () => {
+  it("修改词条并接受通用 Rime 编码", () => {
     const document = parseDictionary(fixture);
-    expect(updateEntry(document, document.entries[0].id, { phrase: "工号", code: "Aakg", weight: 999 }).ok).toBe(true);
-    expect(document.entries[0]).toMatchObject({ code: "aakg", weight: 999 });
-    expect(updateEntry(document, document.entries[0].id, { phrase: "工号", code: "a1", weight: 0 })).toEqual({
+    expect(updateEntry(document, document.entries[0].id, { phrase: "工号", code: "Code-1;", weight: 999 }).ok).toBe(true);
+    expect(document.entries[0]).toMatchObject({ code: "Code-1;", weight: 999 });
+    expect(updateEntry(document, document.entries[0].id, { phrase: "工号", code: "\t", weight: 1 })).toEqual({
       ok: false,
       error: "invalid-code",
     });
@@ -48,7 +48,12 @@ describe("词典编辑公共接口", () => {
     const original = "---\r\nname: windows\r\n...\r\n原词\tABCD\t7\r\n# 注释\r\n";
     const document = parseDictionary(original);
     expect(serializeDictionary(document)).toBe(original);
-    expect(updateEntry(document, document.entries[0].id, { phrase: "新词", code: "WXYZ", weight: 9 }).ok).toBe(true);
-    expect(serializeDictionary(document)).toBe("---\r\nname: windows\r\n...\r\n新词\twxyz\t9\r\n# 注释\r\n");
+    expect(updateEntry(document, document.entries[0].id, { phrase: "新词", code: "WXYZ-1", weight: 9 }).ok).toBe(true);
+    expect(serializeDictionary(document)).toBe("---\r\nname: windows\r\n...\r\n新词\tWXYZ-1\t9\r\n# 注释\r\n");
+  });
+
+  it("解析含数字和标点的既有编码", () => {
+    const document = parseDictionary("---\nname: general\n...\n符号\tCode-1;\t2\n");
+    expect(document.entries[0]).toMatchObject({ phrase: "符号", code: "Code-1;", weight: 2 });
   });
 });

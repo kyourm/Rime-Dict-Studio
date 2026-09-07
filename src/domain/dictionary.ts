@@ -26,17 +26,17 @@ export interface EntryDraft {
 
 export type EditResult = { ok: true } | { ok: false; error: "empty-phrase" | "invalid-code" | "invalid-weight" | "duplicate" | "not-found" };
 
-const ENTRY_PATTERN = /^([^\t]+)\t([a-zA-Z]+)(?:\t(\d+))?$/;
+const ENTRY_PATTERN = /^([^\t]+)\t([^\t]+)(?:\t(\d+))?$/;
 
 function normalizedDraft(draft: EntryDraft): EntryDraft {
-  return { phrase: draft.phrase.trim(), code: draft.code.trim().toLowerCase(), weight: draft.weight };
+  return { phrase: draft.phrase.trim(), code: draft.code.trim(), weight: draft.weight };
 }
 
 function validate(document: DictionaryDocument, draft: EntryDraft, currentId?: string): EditResult {
   if (!draft.phrase) return { ok: false, error: "empty-phrase" };
-  if (!/^[a-z]+$/.test(draft.code)) return { ok: false, error: "invalid-code" };
+  if (!draft.code || /[\t\r\n]/.test(draft.code)) return { ok: false, error: "invalid-code" };
   if (draft.weight !== null && (!Number.isInteger(draft.weight) || draft.weight < 1)) return { ok: false, error: "invalid-weight" };
-  const duplicate = document.entries.some((entry) => entry.id !== currentId && entry.phrase === draft.phrase && entry.code.toLowerCase() === draft.code);
+  const duplicate = document.entries.some((entry) => entry.id !== currentId && entry.phrase === draft.phrase && entry.code === draft.code);
   return duplicate ? { ok: false, error: "duplicate" } : { ok: true };
 }
 
