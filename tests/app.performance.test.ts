@@ -21,7 +21,6 @@ vi.mock("../src/services/rime", () => ({
     content: `---\nname: performance\n...\n${dictionaryBody}\n`,
   })),
   rememberSelection: vi.fn(async () => undefined),
-  listDictionaries: vi.fn(async () => []),
   saveDictionary: vi.fn(async () => undefined),
 }));
 
@@ -38,21 +37,11 @@ describe("大词典界面", () => {
     expect(performance.now() - startedAt).toBeLessThan(2_000);
   });
 
-  it("词典列表独立滚动且目录和文件操作始终保留", async () => {
+  it("界面只显示当前文件选择入口，不列出目录中的其他词典", async () => {
     const wrapper = mount(App, { global: { plugins: [i18n] } });
     await flushPromises();
-    expect(wrapper.find(".dictionary-list").exists()).toBe(true);
-    expect(wrapper.find(".sidebar-actions").exists()).toBe(true);
-    expect(wrapper.findAll(".sidebar-actions button")).toHaveLength(2);
-  });
-
-  it("加载更多后切换词典会恢复首批渲染上限", async () => {
-    const wrapper = mount(App, { global: { plugins: [i18n] } });
-    await flushPromises();
-    await wrapper.find(".load-more").trigger("click");
-    expect(wrapper.findAll(".entry-row")).toHaveLength(600);
-    await wrapper.find(".dict-item").trigger("click");
-    await flushPromises();
-    expect(wrapper.findAll(".entry-row")).toHaveLength(300);
+    expect(wrapper.find(".dictionary-list").exists()).toBe(false);
+    expect(wrapper.find(".file-picker").exists()).toBe(true);
+    expect(wrapper.find(".theme-control").exists()).toBe(true);
   });
 });
