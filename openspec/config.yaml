@@ -1,0 +1,6 @@
+schema: spec-driven
+context: 跨平台 Rime 词典编辑器，使用 Tauri、Vue 3 和 TypeScript。
+rules:
+  specs:
+    - 修改词典前必须创建单份滚动备份
+    - 不提供自动部署 Rime 的能力
