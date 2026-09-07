@@ -1,5 +1,7 @@
-export type ThemeMode = "system" | "light" | "dark";
-export type AccentColor = "system" | "blue" | "teal" | "orange";
+export const THEME_MODES = ["system", "light", "dark"] as const;
+export const ACCENT_COLORS = ["system", "blue", "teal", "orange"] as const;
+export type ThemeMode = typeof THEME_MODES[number];
+export type AccentColor = typeof ACCENT_COLORS[number];
 
 export interface ThemePreference {
   mode: ThemeMode;
@@ -8,15 +10,13 @@ export interface ThemePreference {
 
 const STORAGE_KEY = "rime-dict-studio-theme";
 const DEFAULT_PREFERENCE: ThemePreference = { mode: "system", accent: "system" };
-const MODES: ThemeMode[] = ["system", "light", "dark"];
-const ACCENTS: AccentColor[] = ["system", "blue", "teal", "orange"];
 
 export function loadThemePreference(storage: Storage): ThemePreference {
   try {
     const value: unknown = JSON.parse(storage.getItem(STORAGE_KEY) ?? "null");
     if (typeof value !== "object" || value === null) return { ...DEFAULT_PREFERENCE };
     const candidate = value as Partial<ThemePreference>;
-    if (!MODES.includes(candidate.mode as ThemeMode) || !ACCENTS.includes(candidate.accent as AccentColor)) return { ...DEFAULT_PREFERENCE };
+    if (!THEME_MODES.includes(candidate.mode as ThemeMode) || !ACCENT_COLORS.includes(candidate.accent as AccentColor)) return { ...DEFAULT_PREFERENCE };
     return { mode: candidate.mode as ThemeMode, accent: candidate.accent as AccentColor };
   } catch {
     return { ...DEFAULT_PREFERENCE };

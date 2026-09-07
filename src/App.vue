@@ -5,7 +5,7 @@ import { useI18n } from "vue-i18n";
 import appIcon from "./assets/app-icon.png";
 import { addEntry, parseDictionary, searchEntries, serializeDictionary, updateEntry, type DictionaryDocument, type DictionaryEntry, type EditResult } from "./domain/dictionary";
 import { bootstrap, readDictionary, rememberSelection, saveDictionary } from "./services/rime";
-import { applyThemePreference, loadThemePreference, saveThemePreference, type AccentColor, type ThemeMode } from "./services/theme";
+import { ACCENT_COLORS, applyThemePreference, loadThemePreference, saveThemePreference, THEME_MODES, type AccentColor, type ThemeMode } from "./services/theme";
 
 const { t } = useI18n();
 const ENTRY_RENDER_BATCH_SIZE = 300;
@@ -114,11 +114,11 @@ onMounted(async () => {
         <div class="theme-panel">
           <span class="setting-label">{{ t('theme.mode') }}</span>
           <div class="segmented">
-            <button v-for="mode in (['system', 'light', 'dark'] as ThemeMode[])" :key="mode" :class="{ active: themeMode === mode }" @click.prevent="themeMode = mode">{{ t(`theme.${mode}`) }}</button>
+            <button v-for="mode in THEME_MODES" :key="mode" :class="{ active: themeMode === mode }" @click.prevent="themeMode = mode">{{ t(`theme.${mode}`) }}</button>
           </div>
           <span class="setting-label">{{ t('theme.color') }}</span>
           <div class="swatches">
-            <button v-for="color in (['system', 'blue', 'teal', 'orange'] as AccentColor[])" :key="color" :class="[`swatch-${color}`, { active: accentColor === color }]" :aria-label="t(`theme.${color}`)" :title="t(`theme.${color}`)" @click.prevent="accentColor = color" />
+            <button v-for="color in ACCENT_COLORS" :key="color" :class="[`swatch-${color}`, { active: accentColor === color }]" :aria-label="t(`theme.${color}`)" :title="t(`theme.${color}`)" @click.prevent="accentColor = color" />
           </div>
         </div>
       </details>

@@ -16,6 +16,9 @@
 :root[data-accent="blue"] { --accent: #3d6fd8; --accent-hover: #315fbd; }
 :root[data-accent="teal"] { --accent: #238678; --accent-hover: #1b7165; }
 :root[data-accent="orange"] { --accent: #c9662d; --accent-hover: #ad5522; }
+@supports (color: AccentColor) {
+  :root[data-accent="system"] { --accent: AccentColor; --accent-hover: AccentColor; }
+}
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
@@ -53,7 +56,8 @@ button { color: inherit; }
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 16px;
+  padding: 20px;
+  border-radius: 10px;
   background: var(--surface);
 }
 
@@ -99,7 +103,7 @@ button { color: inherit; }
 .swatches { display: flex; gap: 10px; }
 .swatches button { width: 23px; height: 23px; border: 2px solid var(--surface); border-radius: 50%; cursor: pointer; box-shadow: 0 0 0 1px var(--line); }
 .swatches button.active { box-shadow: 0 0 0 2px var(--text); }
-.swatch-system { background: #777; }
+.swatch-system { background: #777; background: AccentColor; }
 .swatch-blue { background: #3d6fd8; }
 .swatch-teal { background: #238678; }
 .swatch-orange { background: #c9662d; }
@@ -170,7 +174,7 @@ footer { min-height: 34px; justify-content: space-between; color: var(--muted); 
 .toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(6px); }
 
 @media (max-width: 620px) {
-  .app-shell { padding: 10px; gap: 9px; }
+  .app-shell { gap: 9px; }
   .entry-count { display: none; }
   .table-head, .entry-row { grid-template-columns: minmax(110px, 2fr) minmax(80px, 1fr) 55px; }
   .table-head span:last-child, .entry-row .edit { display: none; }
