@@ -20,4 +20,6 @@ npm test
 npm run tauri dev
 ```
 
+macOS 发布构建使用 `npm run bundle:macos`，该命令会在打包后验证应用图标声明与 ICNS 资源。
+
 保存词典后，请自行重新部署 Rime。

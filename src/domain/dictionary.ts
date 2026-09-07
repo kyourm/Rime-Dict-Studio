@@ -29,7 +29,7 @@ export type EditResult = { ok: true } | { ok: false; error: "empty-phrase" | "in
 const ENTRY_PATTERN = /^([^\t]+)\t([^\t]+)(?:\t(\d+))?$/;
 
 function normalizedDraft(draft: EntryDraft): EntryDraft {
-  return { phrase: draft.phrase.trim(), code: draft.code.trim(), weight: draft.weight };
+  return { phrase: draft.phrase.trim(), code: draft.code, weight: draft.weight };
 }
 
 function validate(document: DictionaryDocument, draft: EntryDraft, currentId?: string): EditResult {

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "bundle:macos": "tauri build && ./scripts/verify-bundle-icon.sh 'src-tauri/target/release/bundle/macos/Rime Dict Studio.app'",
     "test": "vitest run",
     "tauri": "tauri"
   },

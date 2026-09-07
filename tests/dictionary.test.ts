@@ -56,4 +56,10 @@ describe("词典编辑公共接口", () => {
     const document = parseDictionary("---\nname: general\n...\n符号\tCode-1;\t2\n");
     expect(document.entries[0]).toMatchObject({ phrase: "符号", code: "Code-1;", weight: 2 });
   });
+
+  it("新增时原样保留编码中的首尾空格", () => {
+    const document = parseDictionary(fixture);
+    expect(addEntry(document, { phrase: "空格编码", code: " Code 1 ", weight: null }).ok).toBe(true);
+    expect(document.entries.at(-1)?.code).toBe(" Code 1 ");
+  });
 });
