@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "vue-i18n";
 import { addEntry, parseDictionary, searchEntries, serializeDictionary, updateEntry, type DictionaryDocument, type DictionaryEntry, type EditResult } from "./domain/dictionary";
@@ -17,10 +17,14 @@ const dirty = ref(false);
 const showForm = ref(false);
 const editingId = ref<string | null>(null);
 const toast = ref<{ text: string; kind: "success" | "error" } | null>(null);
+const renderLimit = ref(300);
 const draft = reactive({ phrase: "", code: "", weight: "" });
 
 const visibleEntries = computed(() => document.value ? searchEntries(document.value, query.value) : []);
+const renderedEntries = computed(() => visibleEntries.value.slice(0, renderLimit.value));
 const fileName = computed(() => currentFile.value.split(/[\\/]/).pop() ?? "");
+
+watch(query, () => { renderLimit.value = 300; });
 
 function notify(text: string, kind: "success" | "error" = "success") {
   toast.value = { text, kind };
@@ -115,10 +119,12 @@ onMounted(async () => {
     <aside class="sidebar">
       <div class="brand"><span class="brand-mark">中</span><div><strong>Rime</strong><small>DICT STUDIO</small></div></div>
       <div class="side-label">{{ t('nav.dictionary') }}</div>
-      <button v-for="path in dictionaries" :key="path" class="dict-item" :class="{ active: path === currentFile }" @click="loadFile(path)">
-        <span class="file-glyph">辞</span><span><strong>{{ path.split(/[\\/]/).pop() }}</strong><small>{{ path === currentFile ? t(dirty ? 'status.unsaved' : 'status.saved') : '' }}</small></span>
-      </button>
-      <div v-if="dictionaries.length === 0" class="side-empty">{{ t('nav.noDictionaries') }}</div>
+      <div class="dictionary-list">
+        <button v-for="path in dictionaries" :key="path" class="dict-item" :class="{ active: path === currentFile }" @click="loadFile(path)">
+          <span class="file-glyph">辞</span><span><strong>{{ path.split(/[\\/]/).pop() }}</strong><small>{{ path === currentFile ? t(dirty ? 'status.unsaved' : 'status.saved') : '' }}</small></span>
+        </button>
+        <div v-if="dictionaries.length === 0" class="side-empty">{{ t('nav.noDictionaries') }}</div>
+      </div>
       <div class="sidebar-actions">
         <button class="ghost" @click="chooseDirectory">＋ {{ t('nav.chooseDirectory') }}</button>
         <button class="ghost" @click="chooseFile">⌁ {{ t('nav.chooseFile') }}</button>
@@ -141,10 +147,13 @@ onMounted(async () => {
 
         <section class="table-card">
           <div class="table-head"><span>{{ t('editor.phrase') }}</span><span>{{ t('editor.code') }}</span><span>{{ t('editor.weight') }}</span><span /></div>
-          <button v-for="entry in visibleEntries" :key="entry.id" class="entry-row" @click="resetForm(entry)">
+          <button v-for="entry in renderedEntries" :key="entry.id" class="entry-row" @click="resetForm(entry)">
             <strong>{{ entry.phrase }}</strong><code>{{ entry.code }}</code><span class="weight">{{ entry.weight ?? '—' }}</span><span class="edit">{{ t('editor.edit') }} →</span>
           </button>
           <div v-if="visibleEntries.length === 0" class="empty-list">◇<span>{{ t('status.empty') }}</span></div>
+          <button v-else-if="renderedEntries.length < visibleEntries.length" class="load-more" @click="renderLimit += 300">
+            {{ t('editor.loadMore', { shown: renderedEntries.length, total: visibleEntries.length }) }}
+          </button>
         </section>
 
         <footer><span>{{ t('editor.manualDeploy') }}</span><div class="save-group"><span :class="{ dirty }">{{ t(dirty ? 'status.unsaved' : 'status.saved') }}</span><button class="save" :disabled="!dirty || saving" @click="save">{{ t(saving ? 'editor.saving' : 'editor.save') }}</button></div></footer>

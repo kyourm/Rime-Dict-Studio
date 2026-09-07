@@ -73,6 +73,12 @@ input {
   opacity: 0.45;
   padding: 0 12px 10px;
 }
+.dictionary-list {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #ffffff30 transparent;
+}
 .dict-item {
   width: 100%;
   border: 0;
@@ -110,8 +116,21 @@ input {
 }
 .sidebar-actions {
   margin-top: auto;
+  flex: 0 0 auto;
   display: grid;
   gap: 4px;
+}
+.load-more {
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: #f7f9f5;
+  color: #557064;
+  padding: 14px;
+  cursor: pointer;
+}
+.load-more:hover {
+  background: #eef3ed;
 }
 .ghost {
   border: 0;
