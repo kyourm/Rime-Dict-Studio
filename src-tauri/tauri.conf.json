@@ -10,7 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{ "title": "Rime Dict Studio", "width": 1180, "height": 760, "minWidth": 850, "minHeight": 620 }],
+    "windows": [{ "title": "Rime Dict Studio", "width": 1180, "height": 760, "minWidth": 640, "minHeight": 620 }],
     "security": { "csp": null }
   },
   "bundle": { "active": true, "targets": "all" }

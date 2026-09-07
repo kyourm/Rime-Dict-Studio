@@ -3,6 +3,7 @@ export interface DictionaryEntry {
   phrase: string;
   code: string;
   weight: number | null;
+  original?: string;
 }
 
 type BodyLine =
@@ -14,6 +15,7 @@ export interface DictionaryDocument {
   lines: BodyLine[];
   entries: DictionaryEntry[];
   trailingNewline: boolean;
+  lineEnding: "\n" | "\r\n";
 }
 
 export interface EntryDraft {
@@ -34,17 +36,18 @@ function validate(document: DictionaryDocument, draft: EntryDraft, currentId?: s
   if (!draft.phrase) return { ok: false, error: "empty-phrase" };
   if (!/^[a-z]+$/.test(draft.code)) return { ok: false, error: "invalid-code" };
   if (draft.weight !== null && (!Number.isInteger(draft.weight) || draft.weight < 1)) return { ok: false, error: "invalid-weight" };
-  const duplicate = document.entries.some((entry) => entry.id !== currentId && entry.phrase === draft.phrase && entry.code === draft.code);
+  const duplicate = document.entries.some((entry) => entry.id !== currentId && entry.phrase === draft.phrase && entry.code.toLowerCase() === draft.code);
   return duplicate ? { ok: false, error: "duplicate" } : { ok: true };
 }
 
 export function parseDictionary(content: string): DictionaryDocument {
+  const lineEnding = content.includes("\r\n") ? "\r\n" : "\n";
   const trailingNewline = content.endsWith("\n");
-  const allLines = content.replace(/\r\n/g, "\n").split("\n");
+  const allLines = content.split(lineEnding);
   if (trailingNewline) allLines.pop();
   const markerIndex = allLines.findIndex((line) => line.trim() === "...");
   if (markerIndex < 0) throw new Error("missing-marker");
-  const header = `${allLines.slice(0, markerIndex + 1).join("\n")}\n`;
+  const header = `${allLines.slice(0, markerIndex + 1).join(lineEnding)}${lineEnding}`;
   const entries: DictionaryEntry[] = [];
   const lines: BodyLine[] = allLines.slice(markerIndex + 1).map((value, index) => {
     const match = value.match(ENTRY_PATTERN);
@@ -52,24 +55,25 @@ export function parseDictionary(content: string): DictionaryDocument {
     const entry: DictionaryEntry = {
       id: `line-${markerIndex + 1 + index}`,
       phrase: match[1],
-      code: match[2].toLowerCase(),
+      code: match[2],
       weight: match[3] === undefined ? null : Number(match[3]),
+      original: value,
     };
     entries.push(entry);
     return { kind: "entry", entry };
   });
-  return { header, lines, entries, trailingNewline };
+  return { header, lines, entries, trailingNewline, lineEnding };
 }
 
 export function serializeDictionary(document: DictionaryDocument): string {
-  const body = document.lines.map((line) => line.kind === "raw" ? line.value : [line.entry.phrase, line.entry.code, line.entry.weight].filter((value) => value !== null).join("\t")).join("\n");
-  return `${document.header}${body}${document.trailingNewline ? "\n" : ""}`;
+  const body = document.lines.map((line) => line.kind === "raw" ? line.value : line.entry.original ?? [line.entry.phrase, line.entry.code, line.entry.weight].filter((value) => value !== null).join("\t")).join(document.lineEnding);
+  return `${document.header}${body}${document.trailingNewline ? document.lineEnding : ""}`;
 }
 
 export function searchEntries(document: DictionaryDocument, query: string): DictionaryEntry[] {
   const needle = query.trim().toLocaleLowerCase();
   if (!needle) return document.entries;
-  return document.entries.filter((entry) => entry.phrase.toLocaleLowerCase().includes(needle) || entry.code.includes(needle));
+  return document.entries.filter((entry) => entry.phrase.toLocaleLowerCase().includes(needle) || entry.code.toLocaleLowerCase().includes(needle));
 }
 
 export function addEntry(document: DictionaryDocument, input: EntryDraft): EditResult {
@@ -89,5 +93,6 @@ export function updateEntry(document: DictionaryDocument, id: string, input: Ent
   const entry = document.entries.find((candidate) => candidate.id === id);
   if (!entry) return { ok: false, error: "not-found" };
   Object.assign(entry, draft);
+  entry.original = undefined;
   return { ok: true };
 }

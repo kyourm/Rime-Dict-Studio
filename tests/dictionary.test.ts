@@ -43,4 +43,12 @@ describe("词典编辑公共接口", () => {
       error: "invalid-code",
     });
   });
+
+  it("保存时原样保留 CRLF 和未编辑的大写编码", () => {
+    const original = "---\r\nname: windows\r\n...\r\n原词\tABCD\t7\r\n# 注释\r\n";
+    const document = parseDictionary(original);
+    expect(serializeDictionary(document)).toBe(original);
+    expect(updateEntry(document, document.entries[0].id, { phrase: "新词", code: "WXYZ", weight: 9 }).ok).toBe(true);
+    expect(serializeDictionary(document)).toBe("---\r\nname: windows\r\n...\r\n新词\twxyz\t9\r\n# 注释\r\n");
+  });
 });

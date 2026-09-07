@@ -42,21 +42,29 @@ async function loadFile(path: string) {
 }
 
 async function chooseDirectory() {
-  const selected = await open({ directory: true, multiple: false, title: t("nav.chooseDirectory") });
-  if (typeof selected !== "string") return;
-  directory.value = selected;
-  dictionaries.value = await listDictionaries(selected);
-  currentFile.value = "";
-  document.value = null;
-  if (dictionaries.value.length > 0) await loadFile(dictionaries.value[0]);
+  loading.value = true;
+  try {
+    const selected = await open({ directory: true, multiple: false, title: t("nav.chooseDirectory") });
+    if (typeof selected !== "string") return;
+    directory.value = selected;
+    dictionaries.value = await listDictionaries(selected);
+    currentFile.value = "";
+    document.value = null;
+    if (dictionaries.value.length > 0) await loadFile(dictionaries.value[0]);
+  } catch (error) { notify(`${t("message.failed")}: ${String(error)}`, "error"); }
+  finally { loading.value = false; }
 }
 
 async function chooseFile() {
-  const selected = await open({ directory: false, multiple: false, filters: [{ name: "Rime dictionary", extensions: ["dict.yaml"] }], title: t("nav.chooseFile") });
-  if (typeof selected !== "string") return;
-  directory.value = selected.replace(/[\\/][^\\/]+$/, "");
-  dictionaries.value = await listDictionaries(directory.value);
-  await loadFile(selected);
+  loading.value = true;
+  try {
+    const selected = await open({ directory: false, multiple: false, filters: [{ name: t("nav.dictionaryFilter"), extensions: ["yaml"] }], title: t("nav.chooseFile") });
+    if (typeof selected !== "string") return;
+    directory.value = selected.replace(/[\\/][^\\/]+$/, "");
+    dictionaries.value = await listDictionaries(directory.value);
+    await loadFile(selected);
+  } catch (error) { notify(`${t("message.failed")}: ${String(error)}`, "error"); }
+  finally { loading.value = false; }
 }
 
 function resetForm(entry?: DictionaryEntry) {
@@ -110,7 +118,7 @@ onMounted(async () => {
       <button v-for="path in dictionaries" :key="path" class="dict-item" :class="{ active: path === currentFile }" @click="loadFile(path)">
         <span class="file-glyph">辞</span><span><strong>{{ path.split(/[\\/]/).pop() }}</strong><small>{{ path === currentFile ? t(dirty ? 'status.unsaved' : 'status.saved') : '' }}</small></span>
       </button>
-      <div v-if="dictionaries.length === 0" class="side-empty">No .dict.yaml</div>
+      <div v-if="dictionaries.length === 0" class="side-empty">{{ t('nav.noDictionaries') }}</div>
       <div class="sidebar-actions">
         <button class="ghost" @click="chooseDirectory">＋ {{ t('nav.chooseDirectory') }}</button>
         <button class="ghost" @click="chooseFile">⌁ {{ t('nav.chooseFile') }}</button>
@@ -120,7 +128,7 @@ onMounted(async () => {
     <main>
       <header>
         <div><p class="eyebrow">{{ t('app.eyebrow') }}</p><h1>{{ t('app.title') }}</h1><p class="subtitle">{{ t('app.subtitle') }}</p></div>
-        <button class="locale" @click="locale = locale === 'zh-CN' ? 'en' : 'zh-CN'">{{ locale === 'zh-CN' ? 'EN' : '中文' }}</button>
+        <button class="locale" @click="locale = locale === 'zh-CN' ? 'en' : 'zh-CN'">{{ t('nav.switchLanguage') }}</button>
       </header>
 
       <section v-if="loading" class="state-card"><span class="spinner" />{{ t('status.loading') }}</section>
@@ -145,7 +153,7 @@ onMounted(async () => {
 
     <div v-if="showForm" class="modal-backdrop" @click.self="showForm = false">
       <form class="modal" @submit.prevent="submitEntry">
-        <div class="modal-header"><div><p class="eyebrow">ENTRY</p><h2>{{ t(editingId ? 'editor.confirmEdit' : 'editor.add') }}</h2></div><button type="button" class="close" @click="showForm = false">×</button></div>
+        <div class="modal-header"><div><p class="eyebrow">{{ t('editor.eyebrow') }}</p><h2>{{ t(editingId ? 'editor.confirmEdit' : 'editor.add') }}</h2></div><button type="button" class="close" @click="showForm = false">×</button></div>
         <div class="modal-body">
           <label><span>{{ t('editor.phrase') }}</span><input v-model="draft.phrase" autofocus required /></label>
           <label><span>{{ t('editor.code') }}</span><input v-model="draft.code" pattern="[A-Za-z]+" required autocapitalize="off" /></label>
