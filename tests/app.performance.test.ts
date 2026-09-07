@@ -45,4 +45,14 @@ describe("大词典界面", () => {
     expect(wrapper.find(".sidebar-actions").exists()).toBe(true);
     expect(wrapper.findAll(".sidebar-actions button")).toHaveLength(2);
   });
+
+  it("加载更多后切换词典会恢复首批渲染上限", async () => {
+    const wrapper = mount(App, { global: { plugins: [i18n] } });
+    await flushPromises();
+    await wrapper.find(".load-more").trigger("click");
+    expect(wrapper.findAll(".entry-row")).toHaveLength(600);
+    await wrapper.find(".dict-item").trigger("click");
+    await flushPromises();
+    expect(wrapper.findAll(".entry-row")).toHaveLength(300);
+  });
 });

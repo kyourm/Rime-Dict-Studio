@@ -6,6 +6,7 @@ import { addEntry, parseDictionary, searchEntries, serializeDictionary, updateEn
 import { bootstrap, listDictionaries, readDictionary, rememberSelection, saveDictionary } from "./services/rime";
 
 const { t, locale } = useI18n();
+const ENTRY_RENDER_BATCH_SIZE = 300;
 const directory = ref("");
 const currentFile = ref("");
 const dictionaries = ref<string[]>([]);
@@ -17,14 +18,14 @@ const dirty = ref(false);
 const showForm = ref(false);
 const editingId = ref<string | null>(null);
 const toast = ref<{ text: string; kind: "success" | "error" } | null>(null);
-const renderLimit = ref(300);
+const renderLimit = ref(ENTRY_RENDER_BATCH_SIZE);
 const draft = reactive({ phrase: "", code: "", weight: "" });
 
 const visibleEntries = computed(() => document.value ? searchEntries(document.value, query.value) : []);
 const renderedEntries = computed(() => visibleEntries.value.slice(0, renderLimit.value));
 const fileName = computed(() => currentFile.value.split(/[\\/]/).pop() ?? "");
 
-watch(query, () => { renderLimit.value = 300; });
+watch(query, () => { renderLimit.value = ENTRY_RENDER_BATCH_SIZE; });
 
 function notify(text: string, kind: "success" | "error" = "success") {
   toast.value = { text, kind };
@@ -35,6 +36,7 @@ async function loadFile(path: string) {
   loading.value = true;
   try {
     const loaded = await readDictionary(path);
+    renderLimit.value = ENTRY_RENDER_BATCH_SIZE;
     document.value = parseDictionary(loaded.content);
     currentFile.value = loaded.path;
     dirty.value = false;
@@ -151,7 +153,7 @@ onMounted(async () => {
             <strong>{{ entry.phrase }}</strong><code>{{ entry.code }}</code><span class="weight">{{ entry.weight ?? '—' }}</span><span class="edit">{{ t('editor.edit') }} →</span>
           </button>
           <div v-if="visibleEntries.length === 0" class="empty-list">◇<span>{{ t('status.empty') }}</span></div>
-          <button v-else-if="renderedEntries.length < visibleEntries.length" class="load-more" @click="renderLimit += 300">
+          <button v-else-if="renderedEntries.length < visibleEntries.length" class="load-more" @click="renderLimit += ENTRY_RENDER_BATCH_SIZE">
             {{ t('editor.loadMore', { shown: renderedEntries.length, total: visibleEntries.length }) }}
           </button>
         </section>
