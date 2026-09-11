@@ -3,30 +3,36 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "vue-i18n";
 import appIcon from "./assets/app-icon.png";
-import { addEntry, parseDictionary, searchEntries, serializeDictionary, updateEntry, type DictionaryDocument, type DictionaryEntry, type EditResult } from "./domain/dictionary";
-import { bootstrap, readDictionary, rememberSelection, saveDictionary } from "./services/rime";
+import { createDictionaryWorkspace, type DictionaryWorkspace, type WorkspaceEntry } from "./domain/workspace";
+import { bootstrap, readDictionaryGroup, rememberSelection, saveDictionaries } from "./services/rime";
 import { ACCENT_COLORS, applyThemePreference, loadThemePreference, saveThemePreference, THEME_MODES, type AccentColor, type ThemeMode } from "./services/theme";
 
 const { t } = useI18n();
-const ENTRY_RENDER_BATCH_SIZE = 300;
+const ENTRY_RENDER_BATCH_SIZE = 100;
+const COLLISION_RENDER_LIMIT = 20;
+const MINIMUM_WEIGHT = 1;
+const WEIGHT_STEP = 1;
 const currentFile = ref("");
-const document = ref<DictionaryDocument | null>(null);
+const workspace = ref<DictionaryWorkspace | null>(null);
 const query = ref("");
 const loading = ref(true);
 const saving = ref(false);
 const dirty = ref(false);
 const showForm = ref(false);
 const editingId = ref<string | null>(null);
+const editingEntry = ref<WorkspaceEntry | null>(null);
 const toast = ref<{ text: string; kind: "success" | "error" } | null>(null);
 const renderLimit = ref(ENTRY_RENDER_BATCH_SIZE);
+const workspaceRevision = ref(0);
 const draft = reactive({ phrase: "", code: "", weight: "" });
 const savedTheme = loadThemePreference(window.localStorage);
 const themeMode = ref<ThemeMode>(savedTheme.mode);
 const accentColor = ref<AccentColor>(savedTheme.accent);
 
-const visibleEntries = computed(() => document.value ? searchEntries(document.value, query.value) : []);
+const visibleEntries = computed(() => { workspaceRevision.value; return workspace.value?.search(query.value) ?? []; });
 const renderedEntries = computed(() => visibleEntries.value.slice(0, renderLimit.value));
 const fileName = computed(() => currentFile.value.split(/[\\/]/).pop() ?? "");
+const collisions = computed(() => { workspaceRevision.value; return workspace.value?.collisions(draft.code).filter((entry) => !editingEntry.value || entry.sourcePath !== editingEntry.value.sourcePath || entry.id !== editingEntry.value.id) ?? []; });
 
 watch(query, () => { renderLimit.value = ENTRY_RENDER_BATCH_SIZE; });
 watch([themeMode, accentColor], () => {
@@ -45,13 +51,14 @@ function notify(text: string, kind: "success" | "error" = "success") {
 async function loadFile(path: string) {
   loading.value = true;
   try {
-    const loaded = await readDictionary(path);
+    const loaded = await readDictionaryGroup(path);
     renderLimit.value = ENTRY_RENDER_BATCH_SIZE;
-    document.value = parseDictionary(loaded.content);
-    currentFile.value = loaded.path;
+    workspace.value = createDictionaryWorkspace(loaded.rootPath, loaded.files);
+    workspaceRevision.value += 1;
+    currentFile.value = loaded.rootPath;
     dirty.value = false;
-    await rememberSelection(loaded.path);
-    notify(t("message.loaded"));
+    await rememberSelection(loaded.rootPath);
+    notify(loaded.warnings.length ? t("message.loadedWithWarnings", { count: loaded.warnings.length }) : t("message.loaded"));
   } catch (error) {
     notify(`${t("message.failed")}: ${String(error)}`, "error");
   } finally { loading.value = false; }
@@ -64,8 +71,9 @@ async function chooseFile() {
   } catch (error) { notify(`${t("message.failed")}: ${String(error)}`, "error"); }
 }
 
-function resetForm(entry?: DictionaryEntry) {
+function resetForm(entry?: WorkspaceEntry) {
   editingId.value = entry?.id ?? null;
+  editingEntry.value = entry ?? null;
   draft.phrase = entry?.phrase ?? "";
   draft.code = entry?.code ?? "";
   draft.weight = entry?.weight?.toString() ?? "";
@@ -73,22 +81,37 @@ function resetForm(entry?: DictionaryEntry) {
 }
 
 function submitEntry() {
-  if (!document.value) return;
+  if (!workspace.value) return;
   const input = { phrase: draft.phrase, code: draft.code, weight: draft.weight === "" ? null : Number(draft.weight) };
-  const result: EditResult = editingId.value ? updateEntry(document.value, editingId.value, input) : addEntry(document.value, input);
+  const result = editingEntry.value ? workspace.value.update(editingEntry.value, input) : workspace.value.add(input);
   if (!result.ok) {
     notify(t(result.error === "duplicate" ? "message.duplicate" : "message.invalid"), "error");
     return;
   }
-  dirty.value = true;
+  markWorkspaceChanged();
   showForm.value = false;
 }
 
+function markWorkspaceChanged() {
+  dirty.value = true;
+  workspaceRevision.value += 1;
+}
+
+function adjustWeight(entry: WorkspaceEntry, delta: number) {
+  if (!workspace.value) return;
+  const current = entry.weight ?? MINIMUM_WEIGHT;
+  const result = workspace.value.update(entry, { phrase: entry.phrase, code: entry.code, weight: Math.max(MINIMUM_WEIGHT, current + delta) });
+  if (!result.ok) { notify(t("message.invalid"), "error"); return; }
+  markWorkspaceChanged();
+}
+
 async function save() {
-  if (!document.value || !currentFile.value) return;
+  if (!workspace.value || !currentFile.value) return;
   saving.value = true;
   try {
-    await saveDictionary(currentFile.value, serializeDictionary(document.value));
+    const changes = workspace.value.changes();
+    await saveDictionaries(changes);
+    workspace.value.markSaved();
     dirty.value = false;
     notify(t("message.saved"));
   } catch (error) { notify(`${t("message.failed")}: ${String(error)}`, "error"); }
@@ -130,23 +153,29 @@ onMounted(async () => {
     </section>
 
     <section v-if="loading" class="state-card"><span class="spinner" />{{ t('status.loading') }}</section>
-    <section v-else-if="!document" class="state-card empty-state">
+    <section v-else-if="!workspace" class="state-card empty-state">
       <img :src="appIcon" alt="" />
       <strong>{{ t('status.noFile') }}</strong>
       <button class="primary" @click="chooseFile">{{ t('nav.chooseFile') }}</button>
     </section>
-    <template v-else>
+    <template v-else-if="workspace">
       <section class="toolbar">
         <label class="search"><span>⌕</span><input v-model="query" :placeholder="t('editor.search')" /></label>
-        <span class="entry-count">{{ visibleEntries.length }} {{ t('editor.entries') }}</span>
+        <span class="entry-count">{{ t('editor.groupSummary', { files: workspace.fileCount, entries: workspace.entryCount }) }}</span>
         <button class="primary" @click="resetForm()">＋ {{ t('editor.add') }}</button>
       </section>
 
       <section class="table-card">
-        <div class="table-head"><span>{{ t('editor.phrase') }}</span><span>{{ t('editor.code') }}</span><span>{{ t('editor.weight') }}</span><span /></div>
-        <button v-for="entry in renderedEntries" :key="entry.id" class="entry-row" @click="resetForm(entry)">
-          <strong>{{ entry.phrase }}</strong><code>{{ entry.code }}</code><span>{{ entry.weight ?? '—' }}</span><span class="edit">{{ t('editor.edit') }}</span>
-        </button>
+        <div class="table-head"><span>{{ t('editor.phrase') }}</span><span>{{ t('editor.code') }}</span><span>{{ t('editor.weight') }}</span><span>{{ t('editor.source') }}</span></div>
+        <div v-for="entry in renderedEntries" :key="`${entry.sourcePath}:${entry.id}`" class="entry-row" role="button" tabindex="0" @click="resetForm(entry)" @keydown.enter="resetForm(entry)">
+          <strong>{{ entry.phrase }}</strong><code>{{ entry.code }}</code>
+          <span class="weight-control" @click.stop>
+            <button :aria-label="t('editor.decreaseWeight')" @click="adjustWeight(entry, -1)">−</button>
+            <span>{{ entry.weight ?? '—' }}</span>
+            <button :aria-label="t('editor.increaseWeight')" @click="adjustWeight(entry, 1)">＋</button>
+          </span>
+          <span class="source" :title="entry.sourcePath">{{ entry.sourceName }}</span>
+        </div>
         <div v-if="visibleEntries.length === 0" class="empty-list">{{ t('status.empty') }}</div>
         <button v-else-if="renderedEntries.length < visibleEntries.length" class="load-more" @click="renderLimit += ENTRY_RENDER_BATCH_SIZE">{{ t('editor.loadMore', { shown: renderedEntries.length, total: visibleEntries.length }) }}</button>
       </section>
@@ -160,7 +189,14 @@ onMounted(async () => {
         <div class="modal-body">
           <label><span>{{ t('editor.phrase') }}</span><input v-model="draft.phrase" autofocus required /></label>
           <label><span>{{ t('editor.code') }}</span><input v-model="draft.code" required autocapitalize="off" /></label>
-          <label><span>{{ t('editor.weight') }} · {{ t('editor.optional') }}</span><input v-model="draft.weight" type="number" min="1" step="1" /></label>
+          <section v-if="draft.code && collisions.length" class="collision-panel">
+            <strong>{{ t('editor.collisions', { count: collisions.length }) }}</strong>
+            <div v-for="entry in collisions.slice(0, COLLISION_RENDER_LIMIT)" :key="`${entry.sourcePath}:${entry.id}`" class="collision-row">
+              <span>{{ entry.phrase }}</span><span>{{ entry.weight ?? '—' }}</span><small>{{ entry.sourceName }}</small>
+            </div>
+            <small v-if="collisions.length > COLLISION_RENDER_LIMIT">{{ t('editor.moreCollisions', { count: collisions.length - COLLISION_RENDER_LIMIT }) }}</small>
+          </section>
+          <label><span>{{ t('editor.weight') }} · {{ t('editor.optional') }}</span><input v-model="draft.weight" type="number" :min="MINIMUM_WEIGHT" :step="WEIGHT_STEP" /></label>
         </div>
         <div class="modal-footer"><button type="button" class="secondary" @click="showForm = false">{{ t('editor.cancel') }}</button><button class="primary" type="submit">{{ t(editingId ? 'editor.confirmEdit' : 'editor.confirmAdd') }}</button></div>
       </form>

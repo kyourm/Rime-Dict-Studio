@@ -16,12 +16,13 @@ vi.mock("../src/services/rime", () => ({
     file: dictionaryPath,
     dictionaries: Array.from({ length: 80 }, (_, index) => `/mock/dictionary-${index}.dict.yaml`),
   })),
-  readDictionary: vi.fn(async () => ({
-    path: dictionaryPath,
-    content: `---\nname: performance\n...\n${dictionaryBody}\n`,
+  readDictionaryGroup: vi.fn(async () => ({
+    rootPath: dictionaryPath,
+    files: [{ path: dictionaryPath, content: `---\nname: performance\n...\n${dictionaryBody}\n` }],
+    warnings: [],
   })),
   rememberSelection: vi.fn(async () => undefined),
-  saveDictionary: vi.fn(async () => undefined),
+  saveDictionaries: vi.fn(async () => undefined),
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
@@ -33,7 +34,7 @@ describe("大词典界面", () => {
     const startedAt = performance.now();
     const wrapper = mount(App, { global: { plugins: [i18n] } });
     await flushPromises();
-    expect(wrapper.findAll(".entry-row").length).toBeLessThanOrEqual(300);
+    expect(wrapper.findAll(".entry-row").length).toBeLessThanOrEqual(100);
     expect(performance.now() - startedAt).toBeLessThan(2_000);
   });
 

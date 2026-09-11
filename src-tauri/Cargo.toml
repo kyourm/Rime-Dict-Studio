@@ -1,6 +1,6 @@
 [package]
 name = "rime-dict-studio"
-version = "0.2.1"
+version = "0.3.0"
 description = "A safe cross-platform editor for Rime dictionaries"
 authors = ["Rime Dict Studio contributors"]
 edition = "2021"
@@ -16,8 +16,11 @@ tauri-build = { version = "2", features = [] }
 atomicwrites = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_yaml = "0.9"
+log = "0.4"
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+tauri-plugin-log = "2"
 
 [dev-dependencies]
 tempfile = "3"
