@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
     fs,
-    io::Write,
+    io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
 };
 use tauri::Manager;
@@ -88,6 +88,20 @@ fn imported_tables(content: &str) -> Result<Vec<String>, String> {
         .collect())
 }
 
+fn read_imported_tables(path: &Path) -> Result<Vec<String>, String> {
+    let file = fs::File::open(path).map_err(|error| error.to_string())?;
+    let mut header = String::new();
+    for line in BufReader::new(file).lines() {
+        let line = line.map_err(|error| error.to_string())?;
+        if line.trim() == "..." {
+            break;
+        }
+        header.push_str(&line);
+        header.push('\n');
+    }
+    imported_tables(&header)
+}
+
 fn dictionary_path(directory: &Path, table: &str) -> PathBuf {
     let name = if table.ends_with(".dict.yaml") {
         table.to_string()
@@ -95,6 +109,91 @@ fn dictionary_path(directory: &Path, table: &str) -> PathBuf {
         format!("{table}.dict.yaml")
     };
     directory.join(name)
+}
+
+fn discover_group_roots(selected: &Path) -> Vec<PathBuf> {
+    let Some(directory) = selected.parent() else {
+        return vec![selected.to_path_buf()];
+    };
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) => {
+            log::warn!(
+                "failed to scan dictionary directory {}: {}",
+                directory.display(),
+                error
+            );
+            return vec![selected.to_path_buf()];
+        }
+    };
+    let mut definitions = Vec::new();
+    for entry in entries {
+        let path = match entry {
+            Ok(entry) => entry.path(),
+            Err(error) => {
+                log::warn!("failed to inspect a dictionary directory entry: {error}");
+                continue;
+            }
+        };
+        if !path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(".dict.yaml"))
+        {
+            continue;
+        }
+        let imports = match read_imported_tables(&path) {
+            Ok(imports) => imports,
+            Err(error) => {
+                log::warn!(
+                    "failed to parse dictionary header {}: {}",
+                    path.display(),
+                    error
+                );
+                continue;
+            }
+        };
+        let Ok(canonical) = path.canonicalize() else {
+            log::warn!("failed to resolve dictionary path: {}", path.display());
+            continue;
+        };
+        let resolved = imports
+            .into_iter()
+            .map(|table| dictionary_path(directory, &table))
+            .filter_map(|path| path.canonicalize().ok())
+            .collect::<HashSet<_>>();
+        definitions.push((canonical, resolved));
+    }
+
+    let mut ancestors = HashSet::from([selected.to_path_buf()]);
+    loop {
+        let parents = definitions
+            .iter()
+            .filter(|(path, imports)| {
+                !ancestors.contains(path) && imports.iter().any(|import| ancestors.contains(import))
+            })
+            .map(|(path, _)| path.clone())
+            .collect::<Vec<_>>();
+        if parents.is_empty() {
+            break;
+        }
+        ancestors.extend(parents);
+    }
+    let mut roots = ancestors
+        .iter()
+        .filter(|candidate| {
+            !definitions.iter().any(|(path, imports)| {
+                ancestors.contains(path) && imports.contains(candidate.as_path())
+            })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    roots.sort();
+    if roots.is_empty() {
+        vec![selected.to_path_buf()]
+    } else {
+        roots
+    }
 }
 
 fn read_group_file(
@@ -138,9 +237,14 @@ fn read_dictionary_group(path: String) -> Result<DictionaryGroup, String> {
         .map_err(|error| error.to_string())?;
     let mut files = Vec::new();
     let mut warnings = Vec::new();
-    read_group_file(&root, &mut HashSet::new(), &mut files, &mut warnings)?;
+    let roots = discover_group_roots(&root);
+    let mut visited = HashSet::new();
+    for group_root in &roots {
+        read_group_file(group_root, &mut visited, &mut files, &mut warnings)?;
+    }
     log::info!(
-        "loaded dictionary group: {} files, {} warnings",
+        "loaded dictionary group from {} root(s): {} files, {} warnings",
+        roots.len(),
         files.len(),
         warnings.len()
     );
@@ -316,6 +420,25 @@ mod tests {
         let group = read_dictionary_group(root.to_string_lossy().into_owned()).unwrap();
         assert_eq!(group.files.len(), 2);
         assert_eq!(group.warnings.len(), 1);
+    }
+
+    #[test]
+    fn discovers_the_group_when_an_imported_child_is_selected() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("root.dict.yaml");
+        let child = directory.path().join("child.dict.yaml");
+        let sibling = directory.path().join("sibling.dict.yaml");
+        fs::write(&root, "---\nimport_tables: [child, sibling]\n...\n根\tr\n").unwrap();
+        fs::write(&child, "---\nname: child\n...\n子\tc\n").unwrap();
+        fs::write(&sibling, "---\nname: sibling\n...\n旁\ts\n").unwrap();
+
+        let group = read_dictionary_group(child.to_string_lossy().into_owned()).unwrap();
+
+        assert_eq!(
+            group.root_path,
+            child.canonicalize().unwrap().to_string_lossy()
+        );
+        assert_eq!(group.files.len(), 3);
     }
 
     #[test]
