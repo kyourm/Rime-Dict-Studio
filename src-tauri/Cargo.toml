@@ -1,6 +1,6 @@
 [package]
 name = "rime-dict-studio"
-version = "0.3.1"
+version = "0.3.2"
 description = "A safe cross-platform editor for Rime dictionaries"
 authors = ["Rime Dict Studio contributors"]
 edition = "2021"
