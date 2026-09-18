@@ -23,6 +23,9 @@ vi.mock("../src/services/rime", () => ({
   })),
   rememberSelection: vi.fn(async () => undefined),
   saveDictionaries: vi.fn(async () => undefined),
+  deploymentState: vi.fn(async () => ({ available: false, label: "unavailable", executable: null, arguments: [], workingDirectory: null, experimental: false, custom: false })),
+  saveDeploymentConfig: vi.fn(async () => undefined),
+  deployRime: vi.fn(async () => undefined),
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));

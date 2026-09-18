@@ -5,6 +5,7 @@ import { useI18n } from "vue-i18n";
 import appIcon from "./assets/app-icon.png";
 import { createDictionaryWorkspace, type DictionaryWorkspace, type WorkspaceEntry } from "./domain/workspace";
 import { bootstrap, readDictionaryGroup, rememberSelection, saveDictionaries } from "./services/rime";
+import { useRimeDeployment } from "./composables/useRimeDeployment";
 import { ACCENT_COLORS, applyThemePreference, loadThemePreference, saveThemePreference, THEME_MODES, type AccentColor, type ThemeMode } from "./services/theme";
 
 const { t } = useI18n();
@@ -48,6 +49,13 @@ function notify(text: string, kind: "success" | "error" = "success") {
   window.setTimeout(() => { toast.value = null; }, 2800);
 }
 
+const {
+  deployer, deploying, detecting: detectingDeployer, configuring: configuringDeployer,
+  showSettings: showDeploySettings, draft: deployDraft, refresh: refreshDeployer,
+  openSettings: openDeploySettings, chooseProgram: chooseDeployer,
+  saveSettings: saveDeployerSettings, useAutomatic: useAutomaticDeployer, deploy: runDeployment,
+} = useRimeDeployment(currentFile, notify);
+
 async function loadFile(path: string) {
   loading.value = true;
   try {
@@ -58,6 +66,7 @@ async function loadFile(path: string) {
     currentFile.value = loaded.rootPath;
     dirty.value = false;
     await rememberSelection(loaded.rootPath);
+    await refreshDeployer();
     notify(loaded.warnings.length ? t("message.loadedWithWarnings", { count: loaded.warnings.length }) : t("message.loaded"));
   } catch (error) {
     notify(`${t("message.failed")}: ${String(error)}`, "error");
@@ -105,17 +114,26 @@ function adjustWeight(entry: WorkspaceEntry, delta: number) {
   markWorkspaceChanged();
 }
 
-async function save() {
-  if (!workspace.value || !currentFile.value) return;
+async function persistChanges(showSuccess = true): Promise<boolean> {
+  if (!workspace.value || !currentFile.value) return false;
   saving.value = true;
   try {
     const changes = workspace.value.changes();
     await saveDictionaries(changes);
     workspace.value.markSaved();
     dirty.value = false;
-    notify(t("message.saved"));
-  } catch (error) { notify(`${t("message.failed")}: ${String(error)}`, "error"); }
+    if (showSuccess) notify(t("message.saved"));
+    return true;
+  } catch (error) { notify(`${t("message.failed")}: ${String(error)}`, "error"); return false; }
   finally { saving.value = false; }
+}
+
+async function save() { await persistChanges(); }
+
+async function saveAndDeploy() {
+  if (!deployer.value?.available) { openDeploySettings(); return; }
+  if (dirty.value && !await persistChanges(false)) return;
+  await runDeployment();
 }
 
 onMounted(async () => {
@@ -180,7 +198,13 @@ onMounted(async () => {
         <button v-else-if="renderedEntries.length < visibleEntries.length" class="load-more" @click="renderLimit += ENTRY_RENDER_BATCH_SIZE">{{ t('editor.loadMore', { shown: renderedEntries.length, total: visibleEntries.length }) }}</button>
       </section>
 
-      <footer><span>{{ t('editor.manualDeploy') }}</span><button class="save" :disabled="!dirty || saving" @click="save">{{ t(saving ? 'editor.saving' : 'editor.save') }}</button></footer>
+      <footer>
+        <button class="deploy-status" @click="openDeploySettings">⚙ {{ detectingDeployer ? t('deploy.detecting') : t(`deploy.${deployer?.label ?? 'unavailable'}`) }}<small v-if="deployer?.experimental">{{ t('deploy.experimental') }}</small></button>
+        <div class="footer-actions">
+          <button class="secondary" :disabled="!dirty || saving || deploying" @click="save">{{ t(saving ? 'editor.saving' : 'editor.save') }}</button>
+          <button class="save" :disabled="saving || deploying || detectingDeployer" @click="saveAndDeploy">{{ t(deploying ? 'deploy.deploying' : dirty ? 'deploy.saveAndDeploy' : 'deploy.deploy') }}</button>
+        </div>
+      </footer>
     </template>
 
     <div v-if="showForm" class="modal-backdrop" @click.self="showForm = false">
@@ -199,6 +223,17 @@ onMounted(async () => {
           <label><span>{{ t('editor.weight') }} · {{ t('editor.optional') }}</span><input v-model="draft.weight" type="number" :min="MINIMUM_WEIGHT" :step="WEIGHT_STEP" /></label>
         </div>
         <div class="modal-footer"><button type="button" class="secondary" @click="showForm = false">{{ t('editor.cancel') }}</button><button class="primary" type="submit">{{ t(editingId ? 'editor.confirmEdit' : 'editor.confirmAdd') }}</button></div>
+      </form>
+    </div>
+    <div v-if="showDeploySettings" class="modal-backdrop" @click.self="showDeploySettings = false">
+      <form class="modal" @submit.prevent="saveDeployerSettings">
+        <div class="modal-header"><strong>{{ t('deploy.settings') }}</strong><button type="button" class="icon-button" :disabled="configuringDeployer" @click="showDeploySettings = false">×</button></div>
+        <div class="modal-body">
+          <p class="deploy-help">{{ t('deploy.help') }}</p>
+          <label><span>{{ t('deploy.program') }}</span><div class="path-field"><input v-model="deployDraft.executable" :disabled="configuringDeployer" required /><button type="button" class="secondary" :disabled="configuringDeployer" @click="chooseDeployer">{{ t('deploy.browse') }}</button></div></label>
+          <label><span>{{ t('deploy.arguments') }}</span><textarea v-model="deployDraft.arguments" :disabled="configuringDeployer" :placeholder="t('deploy.argumentsHint')" /></label>
+        </div>
+        <div class="modal-footer deploy-footer"><button type="button" class="secondary auto-deploy" :disabled="configuringDeployer" @click="useAutomaticDeployer">{{ t('deploy.useAutomatic') }}</button><button type="button" class="secondary" :disabled="configuringDeployer" @click="showDeploySettings = false">{{ t('editor.cancel') }}</button><button class="primary" type="submit" :disabled="configuringDeployer">{{ t(configuringDeployer ? 'deploy.savingSettings' : 'deploy.saveSettings') }}</button></div>
       </form>
     </div>
     <Transition name="toast"><div v-if="toast" class="toast" :class="toast.kind">{{ toast.text }}</div></Transition>

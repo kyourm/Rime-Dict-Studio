@@ -1,4 +1,12 @@
+mod deployer;
+
 use atomicwrites::{AtomicFile, OverwriteBehavior};
+#[cfg(test)]
+use deployer::Platform;
+use deployer::{
+    current_platform, detect_deployer, run_deployer, unavailable_state, DeploymentCandidate,
+    DeploymentConfig, DeploymentContext, DeploymentState,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
@@ -14,6 +22,14 @@ const PREFERENCES_FILE: &str = "preferences.json";
 #[serde(rename_all = "camelCase")]
 struct Preferences {
     file: Option<String>,
+    deployer: Option<DeploymentConfig>,
+}
+
+impl Preferences {
+    fn with_file(mut self, file: String) -> Self {
+        self.file = Some(file);
+        self
+    }
 }
 
 #[derive(Serialize)]
@@ -47,6 +63,23 @@ fn load_preferences(path: &Path) -> Preferences {
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok())
         .unwrap_or_default()
+}
+
+fn preferences_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_config_dir()
+        .map_err(|error| error.to_string())
+        .map(|directory| directory.join(PREFERENCES_FILE))
+}
+
+fn save_preferences(path: &Path, preferences: &Preferences) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "missing-preferences-directory".to_string())?;
+    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let serialized =
+        serde_json::to_string_pretty(preferences).map_err(|error| error.to_string())?;
+    fs::write(path, serialized).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -257,14 +290,98 @@ fn read_dictionary_group(path: String) -> Result<DictionaryGroup, String> {
 
 #[tauri::command]
 fn remember_selection(app: tauri::AppHandle, file: String) -> Result<(), String> {
-    let config_dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|error| error.to_string())?;
-    fs::create_dir_all(&config_dir).map_err(|error| error.to_string())?;
-    let serialized = serde_json::to_string_pretty(&Preferences { file: Some(file) })
-        .map_err(|error| error.to_string())?;
-    fs::write(config_dir.join(PREFERENCES_FILE), serialized).map_err(|error| error.to_string())
+    let path = preferences_path(&app)?;
+    let preferences = load_preferences(&path).with_file(file);
+    save_preferences(&path, &preferences)
+}
+
+fn deployment_context(
+    app: &tauri::AppHandle,
+    user_data_dir: PathBuf,
+) -> Result<DeploymentContext, String> {
+    let home = app.path().home_dir().map_err(|error| error.to_string())?;
+    let program_roots = ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    let path_entries = std::env::var_os("PATH")
+        .map(|value| std::env::split_paths(&value).collect())
+        .unwrap_or_default();
+    let macos_candidates = vec![
+        PathBuf::from("/Library/Input Methods/Squirrel.app/Contents/MacOS/Squirrel"),
+        home.join("Library/Input Methods/Squirrel.app/Contents/MacOS/Squirrel"),
+    ];
+    Ok(DeploymentContext {
+        platform: current_platform(),
+        program_roots,
+        path_entries,
+        user_data_dir,
+        macos_candidates,
+    })
+}
+
+fn resolve_deployer(
+    app: &tauri::AppHandle,
+    user_data_dir: PathBuf,
+) -> Result<Option<DeploymentCandidate>, String> {
+    let preferences = load_preferences(&preferences_path(app)?);
+    if let Some(config) = preferences.deployer {
+        return Ok(Some(DeploymentCandidate::from_custom(config)));
+    }
+    Ok(detect_deployer(&deployment_context(app, user_data_dir)?))
+}
+
+#[tauri::command]
+fn deployment_state(
+    app: tauri::AppHandle,
+    user_directory: String,
+) -> Result<DeploymentState, String> {
+    Ok(resolve_deployer(&app, PathBuf::from(user_directory))?
+        .map_or_else(unavailable_state, |candidate| candidate.state()))
+}
+
+#[tauri::command]
+fn save_deployment_config(
+    app: tauri::AppHandle,
+    config: Option<DeploymentConfig>,
+) -> Result<(), String> {
+    if let Some(candidate) = &config {
+        if !candidate.executable.is_file() {
+            return Err("deployer-not-found".into());
+        }
+        if candidate
+            .working_directory
+            .as_ref()
+            .is_some_and(|directory| !directory.is_dir())
+        {
+            return Err("deployer-working-directory-not-found".into());
+        }
+    }
+    let path = preferences_path(&app)?;
+    let mut preferences = load_preferences(&path);
+    preferences.deployer = config;
+    save_preferences(&path, &preferences)
+}
+
+#[tauri::command]
+async fn deploy_rime(app: tauri::AppHandle, user_directory: String) -> Result<(), String> {
+    let candidate = resolve_deployer(&app, PathBuf::from(user_directory))?
+        .ok_or_else(|| "deployer-not-found".to_string())?;
+    log::info!(
+        "starting Rime deployment with {} ({})",
+        candidate.label,
+        candidate.executable.display()
+    );
+    let result = tauri::async_runtime::spawn_blocking(move || run_deployer(&candidate))
+        .await
+        .map_err(|error| format!("deployer-task-failed: {error}"))?;
+    if let Err(error) = &result {
+        log::error!("Rime deployment failed: {error}");
+    } else {
+        log::info!("Rime deployment completed");
+    }
+    result
 }
 
 fn safe_save(path: &Path, content: &str) -> Result<(), String> {
@@ -364,7 +481,10 @@ pub fn run() {
             read_dictionary_group,
             remember_selection,
             save_dictionary,
-            save_dictionaries
+            save_dictionaries,
+            deployment_state,
+            save_deployment_config,
+            deploy_rime
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Rime Dict Studio");
@@ -373,6 +493,97 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detects_squirrel_and_preserves_the_selected_dictionary_as_context() {
+        let directory = tempfile::tempdir().unwrap();
+        let squirrel = directory.path().join("Squirrel");
+        fs::write(&squirrel, "").unwrap();
+        let context = DeploymentContext {
+            platform: Platform::Macos,
+            program_roots: vec![],
+            path_entries: vec![],
+            user_data_dir: directory.path().join("Rime"),
+            macos_candidates: vec![squirrel.clone()],
+        };
+
+        let deployer = detect_deployer(&context).unwrap();
+
+        assert_eq!(deployer.executable, squirrel);
+        assert_eq!(deployer.arguments, vec!["--reload"]);
+        assert!(!deployer.experimental);
+    }
+
+    #[test]
+    fn detects_weasel_in_the_latest_standard_install_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        let older = directory.path().join("Rime/weasel-0.9.0");
+        let latest = directory.path().join("Rime/weasel-0.17.4");
+        fs::create_dir_all(&older).unwrap();
+        fs::create_dir_all(&latest).unwrap();
+        fs::write(older.join("WeaselDeployer.exe"), "").unwrap();
+        fs::write(latest.join("WeaselDeployer.exe"), "").unwrap();
+        let context = DeploymentContext {
+            platform: Platform::Windows,
+            program_roots: vec![directory.path().to_path_buf()],
+            path_entries: vec![],
+            user_data_dir: directory.path().join("Rime"),
+            macos_candidates: vec![],
+        };
+
+        let deployer = detect_deployer(&context).unwrap();
+
+        assert_eq!(deployer.executable, latest.join("WeaselDeployer.exe"));
+        assert_eq!(deployer.arguments, vec!["/deploy"]);
+        assert_eq!(deployer.working_directory, Some(latest));
+    }
+
+    #[test]
+    fn detects_linux_deployer_as_experimental() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("rime_deployer");
+        fs::write(&executable, "").unwrap();
+        let user_data_dir = directory.path().join("rime");
+        let context = DeploymentContext {
+            platform: Platform::Linux,
+            program_roots: vec![],
+            path_entries: vec![directory.path().to_path_buf()],
+            user_data_dir: user_data_dir.clone(),
+            macos_candidates: vec![],
+        };
+
+        let deployer = detect_deployer(&context).unwrap();
+
+        assert!(deployer.experimental);
+        assert_eq!(
+            deployer.arguments.first().map(String::as_str),
+            Some("--build")
+        );
+        assert_eq!(
+            deployer.arguments.get(1).map(String::as_str),
+            Some(user_data_dir.to_string_lossy().as_ref())
+        );
+    }
+
+    #[test]
+    fn remembering_a_file_keeps_the_custom_deployer() {
+        let preferences = Preferences {
+            file: None,
+            deployer: Some(DeploymentConfig {
+                executable: "/custom/deployer".into(),
+                arguments: vec!["--deploy".into()],
+                working_directory: None,
+            }),
+        };
+
+        let updated = preferences.with_file("/rime/user.dict.yaml".into());
+
+        assert_eq!(updated.file.as_deref(), Some("/rime/user.dict.yaml"));
+        assert_eq!(
+            updated.deployer.unwrap().executable,
+            PathBuf::from("/custom/deployer")
+        );
+    }
 
     #[test]
     fn safe_save_overwrites_one_rolling_backup() {
